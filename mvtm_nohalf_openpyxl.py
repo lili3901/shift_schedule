@@ -1,7 +1,9 @@
+# windows10 python3.12 ortools9.10 不能运行，原因未知。
 from ortools.sat.python import cp_model
-from openpyxl import load_workbook
-from dateutil.parser import parse
-import calendar
+from openpyxl import load_workbook,Workbook
+from openpyxl.styles import Font, PatternFill, Alignment,Border,Side
+#from dateutil.parser import parse
+#import calendar
 import os
 current_dir=os.path.dirname(os.path.abspath(__file__))
 model=cp_model.CpModel()
@@ -105,18 +107,17 @@ for s in range(2,num_shifts):
         works=[work[e,d,s] for e in range(num_employees)]
         min_demand=dayly_cover_demands[d][s-2]
         model.Add(sum(works)>=min_demand)
-
+print("start solver")
 # 规划目标
 model.Maximize(
     sum(obj_bool_vars[i]*obj_bool_coeffs[i] for i in range(len(obj_bool_vars)))
 )
 solver=cp_model.CpSolver()
 solver.parameters.max_time_in_seconds=400
-
+''' 
+# 原始的printer开始，下方用自己写的class替换
 solution_printer=cp_model.ObjectiveSolutionPrinter()
 status=solver.SolveWithSolutionCallback(model,solution_printer)
-
-
 
 # print
 if status==cp_model.OPTIMAL or status==cp_model.FEASIBLE:
@@ -134,10 +135,52 @@ if status==cp_model.OPTIMAL or status==cp_model.FEASIBLE:
         print('worker %i:%s' % (e,schedule))
     print()
     print('Penalties:')
+    # excel输出
+    # 定义字体样式，颜色为红色
+    font_style = Font(color='FF0000') # 红色的十六进制代码是 FF0000
+    # 定义填充样式，颜色为黄色
+    fill_style = PatternFill(start_color='FFFF00', end_color='FFFF00', fill_type='solid')
+    # 创建一个新的工作簿
+    wb = Workbook()
+    # 选择活动工作表
+    ws = wb.active
+    for d in range(num_days):
+        ws.cell(row=1, column=2+d).value = d+1
+    for e in range(num_employees):
+        ws.cell(row=2+e, column=1).value = employees[e]
+        for d in range(num_days):
+            for s in range(num_shifts):
+                if solver.BooleanValue(work[e,d,s]):
+                    ws.cell(row=2+e, column=2+d).value = shifts[s]
+                    #if requests[e,d,s]:
+        
 
+    filename = f"solution_00.xlsx"
+    # 保存工作簿
+    wb.save(filename)
+    print(filename)
+    wb.close()    
+else:
+    print("no solution")
+# 原始的printer结束
+'''
 # 下面尝试写一个输出多个可行解的class，与上面的输出可能冲突
+# 定义字体样式，颜色为红色
+font_style = Font(color='FF0000') # 红色的十六进制代码是 FF0000
+# 定义填充样式，颜色为黄色
+fill_style = PatternFill(start_color='FFFF00', end_color='FFFF00', fill_type='solid')
+fill_style_blue = PatternFill(start_color='CC99FF', end_color='CC99FF', fill_type='solid')
+# 创建对齐方式对象并设置水平和垂直居中
+align_center = Alignment(horizontal='center', vertical='center')
+# 创建边框样式对象，使用默认的细线和黑色
+border_style = Border(
+    left=Side(style='thin'), 
+    right=Side(style='thin'), 
+    top=Side(style='thin'), 
+    bottom=Side(style='thin')
+)
 class PartialSolutionPrinter(cp_model.CpSolverSolutionCallback):
-    '''Print intermediate solutions.'''
+    #Print intermediate solutions.
     def __init__(self,shifts,employees,num_days,limit) -> None:
         cp_model.CpSolverSolutionCallback.__init__(self)
         self._shifts=shifts
@@ -148,12 +191,43 @@ class PartialSolutionPrinter(cp_model.CpSolverSolutionCallback):
 
     def on_solution_callback(self):
         self._solution_count+=1
-        print(f"排班方案_{self._solution_count}")
+        print(f"排班_方案_{self._solution_count}")
         # 这里写输出的逻辑
+        # 创建一个新的工作簿
+        wb = Workbook()
+        # 选择活动工作表
+        ws = wb.active
+        for d in range(self._num_days):
+            ws.cell(row=1, column=2+d).value = d+1
+            ws.cell(row=1, column=2+d).alignment=align_center
+        for e in range(len(self._employees)):
+            ws.cell(row=2+e, column=1).value = self._employees[e]
+            ws.cell(row=2+e, column=1).alignment=align_center
+            ws.cell(row=2+e, column=1).border=border_style
+            for d in range(self._num_days):
+                for s in range(len(self._shifts)):
+                    #这里的取值写法要注意，目前还是自己乱写的
+                    if self.BooleanValue(work[e,d,s]):
+#                    if solver.BooleanValue(work[e,d,s]):
+                        ws.cell(row=2+e, column=2+d).value = self._shifts[s]
+                        ws.cell(row=2+e, column=2+d).alignment=align_center
+                        ws.cell(row=2+e, column=2+d).border=border_style
+                        if any(r[0]==e and r[1]==d and r[2]==s for r in fixed_assignments):
+                            ws.cell(row=2+e, column=2+d).fill=fill_style_blue
+                        else:
+                            if any(r[0]==e and r[1]==d for r in requests):
+                                ws.cell(row=2+e, column=2+d).font=font_style
+                            if any(r[0]==e and r[1]==d and r[2]==s for r in requests):
+                                ws.cell(row=2+e, column=2+d).fill=fill_style           
 
+        filename = f"solution_{self._solution_count}.xlsx"
+        # 保存工作簿
+        wb.save(filename)
+        print(filename)
+        wb.close()
         if self._solution_count>=self._solution_limit:
             print(f"停止！已找到{self._solution_limit}个方案。")
-            self.stop_search()
+            #self.stop_search()
     def solutionCount(self):
         return self._solution_count
     
@@ -161,12 +235,11 @@ class PartialSolutionPrinter(cp_model.CpSolverSolutionCallback):
 solution_limit=5
 # 用重写的Printer替换默认的
 solution_printer=PartialSolutionPrinter(shifts,employees,num_days,solution_limit)
-solver.solve(model,solution_printer)
-
+solver.Solve(model,solution_printer)
 # Statistics.
 print("\nStatistics")
-print(f" - conflicts       : {solver.num_conflicts}")
-print(f" - branches        : {solver.num_branches}")
-print(f" - wall time       : {solver.wall_time}")
-print(f" - solutions found : {solution_printer.solutionCount()}")
-    
+#print(f" - conflicts       : {solver.num_conflicts}")
+#print(f" - branches        : {solver.num_branches}")
+#print(f" - wall time       : {solver.wall_time}")
+#print(f" - solutions found : {solution_printer.solutionCount()}")
+   
