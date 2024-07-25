@@ -2,12 +2,7 @@
 from ortools.sat.python import cp_model
 from openpyxl import load_workbook,Workbook
 from openpyxl.styles import Font, PatternFill, Alignment,Border,Side
-#from dateutil.parser import parse
-#import calendar
-from openpyxl import load_workbook,Workbook
-from openpyxl.styles import Font, PatternFill, Alignment,Border,Side
-#from dateutil.parser import parse
-#import calendar
+
 import os
 current_dir=os.path.dirname(os.path.abspath(__file__))
 model=cp_model.CpModel()
@@ -27,8 +22,6 @@ def read_data_from_excel(filename):
     work_days=workbook['capital']['C2'].value
     num_days=workbook['capital']['F2'].value
     
-    #date=parse(date)
-    #num_days=calendar.monthrange(date.year,date.month)
     holi_days=[]
     for row in workbook['capital'].iter_rows(min_row=2,max_row=6,min_col=7,max_col=7,values_only=True):
         if row[0] is not None:
@@ -171,8 +164,7 @@ solver=cp_model.CpSolver()
 solver.parameters.max_time_in_seconds=400
 ''' 
 # 原始的printer开始，下方用自己写的class替换
-''' 
-# 原始的printer开始，下方用自己写的class替换
+
 solution_printer=cp_model.ObjectiveSolutionPrinter()
 status=solver.SolveWithSolutionCallback(model,solution_printer)
 
@@ -208,10 +200,7 @@ if status==cp_model.OPTIMAL or status==cp_model.FEASIBLE:
         for d in range(num_days):
             for s in range(num_shifts):
                 if solver.BooleanValue(work[e,d,s]):
-                    ws.cell(row=2+e, column=2+d).value = shifts[s]
-                    #if requests[e,d,s]:
-        
-
+                    ws.cell(row=2+e, column=2+d).value = shifts[s]     
     filename = f"solution_00.xlsx"
     # 保存工作簿
     wb.save(filename)
@@ -219,35 +208,7 @@ if status==cp_model.OPTIMAL or status==cp_model.FEASIBLE:
     wb.close()    
 else:
     print("no solution")
-# 原始的printer结束
-'''
-    # excel输出
-    # 定义字体样式，颜色为红色
-    font_style = Font(color='FF0000') # 红色的十六进制代码是 FF0000
-    # 定义填充样式，颜色为黄色
-    fill_style = PatternFill(start_color='FFFF00', end_color='FFFF00', fill_type='solid')
-    # 创建一个新的工作簿
-    wb = Workbook()
-    # 选择活动工作表
-    ws = wb.active
-    for d in range(num_days):
-        ws.cell(row=1, column=2+d).value = d+1
-    for e in range(num_employees):
-        ws.cell(row=2+e, column=1).value = employees[e]
-        for d in range(num_days):
-            for s in range(num_shifts):
-                if solver.BooleanValue(work[e,d,s]):
-                    ws.cell(row=2+e, column=2+d).value = shifts[s]
-                    #if requests[e,d,s]:
-        
 
-    filename = f"solution_00.xlsx"
-    # 保存工作簿
-    wb.save(filename)
-    print(filename)
-    wb.close()    
-else:
-    print("no solution")
 # 原始的printer结束
 '''
 # 下面尝试写一个输出多个可行解的class，与上面的输出可能冲突
@@ -348,9 +309,5 @@ print("\nStatistics")
 #print(f" - branches        : {solver.num_branches}")
 #print(f" - wall time       : {solver.wall_time}")
 #print(f" - solutions found : {solution_printer.solutionCount()}")
-   
-#print(f" - conflicts       : {solver.num_conflicts}")
-#print(f" - branches        : {solver.num_branches}")
-#print(f" - wall time       : {solver.wall_time}")
-#print(f" - solutions found : {solution_printer.solutionCount()}")
+
    
