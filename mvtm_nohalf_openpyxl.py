@@ -12,28 +12,31 @@ def read_data_from_excel(filename):
     workbook=load_workbook(filename,data_only=True)
     duty_count=0
     rest_count=0
+    print("读取……上月排班")
     lastweek_assignments=[]
     for row in workbook['上月班次衔接'].iter_rows(min_row=2,min_col=2,max_col=4,values_only=True):
         lastweek_assignments.append(tuple(row))
-    
+    print("读取……排班名单")
     employees=[]
     for row in workbook['capital'].iter_rows(min_row=2,min_col=1,max_col=1,values_only=True):
         employees.append(row[0])
+    print("读取……工作日和总天数")
     work_days=workbook['capital']['C2'].value
     num_days=workbook['capital']['F2'].value
-    
+    print("读取……节日")
     holi_days=[]
-    for row in workbook['capital'].iter_rows(min_row=2,max_row=6,min_col=7,max_col=7,values_only=True):
+    for row in workbook['capital'].iter_rows(min_row=2,max_row=6,min_col=8,max_col=8,values_only=True):
         if row[0] is not None:
             holi_days.append(row[0])
+    print("读取……晚班限制")
     min_M910=workbook['capital']['P2'].value
     min_night=workbook['capital']['Q2'].value
-
+    print("读取……班次需求")
     dayly_cover_demands=[]
     for row in workbook['班次要求'].iter_rows(min_row=2,min_col=1,max_col=10,values_only=True):
         if row[0] is not None:
             dayly_cover_demands.append(tuple(row))
-    
+    print("读取……排班意见")
     requests=[]
     for row in workbook['班次意见'].iter_rows(min_row=2,min_col=2,max_col=5,values_only=True):
         # 因为sheet中已用行数可能大于requests行数，所以要判断。班次要求同理。
@@ -43,7 +46,7 @@ def read_data_from_excel(filename):
                 rest_count+=1
             else:
                 duty_count+=1
-    
+    print("读取……固定班次")
     fixed_assignments=[]
     for row in workbook['固定班次'].iter_rows(min_row=2,min_col=2,max_col=4,values_only=True):
         fixed_assignments.append(tuple(row))
@@ -55,9 +58,9 @@ def read_data_from_excel(filename):
 filename='mvtm_zx_nohalf.xlsm'
 file_path=os.path.join(current_dir,filename)
 lastweek_assignments, employees, work_days, num_days, holi_days, min_M910, min_night, dayly_cover_demands, requests, fixed_assignments,rest_count,duty_count=read_data_from_excel(file_path)
-print("requests readed")
-print(f"-rest  :{rest_count}")
-print(f"-duty  :{duty_count}")
+print("排班意见统计：")
+print(f"-休息意见  :{rest_count}")
+print(f"-上班意见  :{duty_count}")
 num_employees=len(employees)
 shifts=['休','M1','M2','M3','M4','VM1','VM2','VM3','M8','M9','M10','年假','培训']
 num_shifts=len(shifts)
@@ -73,11 +76,15 @@ for e in range(num_employees):
 
 
 # fixed_assignments(e,s,d)
-px=shifts.index("培训")
+# 检查固定班次个数与班次个数要求是否冲突，很重要。
 for e,d,s in fixed_assignments:
-#    if s==px:
-#        work[e,d,s]=model.NewBoolVar('work%i_%i_%i' % (e,d,s))
     model.Add(work[e,d,s]==1)
+# 限制固定班次的个数（除‘休’外），不能多排。很重要
+for e in range(num_employees):
+    for d in range(num_days):
+        for s in range(num_shifts-2,num_shifts):
+            if (e,d,s) not in fixed_assignments:
+                model.Add(work[e,d,s]==0)
 # lastweek_assignments=[]
 for e,d,s in lastweek_assignments:
     model.Add(work[e,d,s]==1)
@@ -117,7 +124,8 @@ night=[7,8,9,10]
 M910=[9,10]
 for e in range(num_employees):
     model.Add(sum(work[e,d,s] for d in range(num_days) for s in M910)<(min_M910+1))
-#    model.Add(sum(work[e,d,s] for d in range(num_days) for s in M910)>(min_M910-1))
+    # 下面是因为指定VM3个数可能超出限制，为了容错
+    #model.Add(sum(work[e,d,s] for d in range(num_days) for s in M910)>(min_M910-1))
     model.Add(sum(work[e,d,s] for d in range(num_days) for s in night)>=(min_night-1))
     model.Add(sum(work[e,d,s] for d in range(num_days) for s in night)<(min_night+1))
 # 班次衔接约束
@@ -133,23 +141,20 @@ penalized_transitions=[
 for previous_shift,next_shift in penalized_transitions:
     for e in range(num_employees):
         for d in range(num_days):
-            # 减少work{}的数量
-#            if (e,d,next_shift) in work:
-                transition=[
-                    work[e,d-1,previous_shift].Not(),work[e,d,next_shift].Not()
-                ]
-                model.AddBoolOr(transition)
-#            else:
-#                pass
+            transition=[
+                work[e,d-1,previous_shift].Not(),work[e,d,next_shift].Not()
+            ]
+            model.AddBoolOr(transition)
+
 
 # 休息天数约束。从外部读取
-rest_days=num_days-work_days
+rest_days=num_days-work_days-len(holi_days)
 for e in range(num_employees):
     model.Add(sum(work[e,d,0] for d in range(num_days)  if d not in holi_days)==rest_days)
 
 # 每日班次个数要求.从外部读取
 #dayly_cover_demands=[]
-# range(1,num_shifts-2)仅为可变班次，不含培训
+# range(1,num_shifts-2)仅为可变班次
 for s in range(1,num_shifts-2):
     for d in range(num_days):
         works=[work[e,d,s] for e in range(num_employees)]
@@ -293,7 +298,7 @@ class PartialSolutionPrinter(cp_model.CpSolverSolutionCallback):
         wb.close()
         if self._solution_count>=self._solution_limit:
             print(f"停止！已找到{self._solution_limit}个方案。")
-            self.StopSearch()
+            self.stop_search()
     def solutionCount(self):
         return self._solution_count
     
