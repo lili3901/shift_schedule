@@ -101,7 +101,7 @@ for e in range(num_employees):
 # 最大连续工作天数不超过7天
 for e in range(num_employees):
     for i in range(num_days):
-        model.Add(sum(work[e,d,s] for s in range(2,num_shifts) for d in range(i-6,i))<7)
+        model.Add(sum(work[e,d,s] for s in range(num_shifts) if s not in [0,num_shifts-2] for d in range(i-6,i+1))<7)
 
 # 禁止休-班-休模式
 # 当前因为上周期班表没有设为变量，所以d-1无法用AddBoolOr
