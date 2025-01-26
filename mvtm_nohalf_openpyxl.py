@@ -50,19 +50,28 @@ def read_data_from_excel(filename):
     fixed_assignments=[]
     for row in workbook['固定班次'].iter_rows(min_row=2,min_col=2,max_col=4,values_only=True):
         fixed_assignments.append(tuple(row))
-
+    print("读取……班次衔接")
+    penalized_transitions=[]
+    for row in workbook['班次衔接'].iter_rows(min_row=2,min_col=1,max_col=2,values_only=True):
+        penalized_transitions.append(tuple(row))
+    print("读取……班次")    
+    shifts=[cell for row in workbook['班次衔接'].iter_rows(min_row=2,min_col=5,max_col=5,values_only=True) for cell in row if cell is not None]
+    n_shifts=[]
+    for row in workbook['班次衔接'].iter_rows(min_row=2,min_col=7,max_col=8,values_only=True):
+        if row[0] is not None:
+            n_shifts.append(row)
     workbook.close()
-    return lastweek_assignments, employees, work_days, num_days, holi_days, min_M910, min_night, dayly_cover_demands, requests, fixed_assignments,rest_count,duty_count
+    return lastweek_assignments, employees, work_days, num_days, holi_days, min_M910, min_night, dayly_cover_demands, requests, fixed_assignments,rest_count,duty_count,penalized_transitions,shifts,n_shifts
 
 # 读入各项参数
 filename='mvtm_zx_nohalf.xlsm'
 file_path=os.path.join(current_dir,filename)
-lastweek_assignments, employees, work_days, num_days, holi_days, min_M910, min_night, dayly_cover_demands, requests, fixed_assignments,rest_count,duty_count=read_data_from_excel(file_path)
+lastweek_assignments, employees, work_days, num_days, holi_days, min_M910, min_night, dayly_cover_demands, requests, fixed_assignments,rest_count,duty_count,penalized_transitions,shifts,n_shifts=read_data_from_excel(file_path)
 print("排班意见统计：")
 print(f"-休息意见  :{rest_count}")
 print(f"-上班意见  :{duty_count}")
 num_employees=len(employees)
-shifts=['休','M1','M2','M3','M4','VM1','VM2','VM3','M8','M9','M10','年假','培训']
+#shifts=['休','M1','M2','M3','M4','VM1','VM2','VM3','M8','M9','M10','年假','培训']
 num_shifts=len(shifts)
 
 obj_bool_vars=[]
@@ -98,68 +107,92 @@ for e in range(num_employees):
     for d in range(num_days):
         model.Add(sum(work[e,d,s] for s in range(num_shifts))==1)
 
-# 最大连续工作天数不超过7天
-for e in range(num_employees):
-    for i in range(num_days):
-        model.Add(sum(work[e,d,s] for s in range(num_shifts) if s not in [0,num_shifts-2] for d in range(i-6,i+1))<7)
-
-# 禁止休-班-休模式
-# 当前因为上周期班表没有设为变量，所以d-1无法用AddBoolOr
-# 下面这个是变通解决上周最后两天分别是 休，休-班这两种情况
-for e in range(num_employees):
-    for d in range(num_days-1):
-        for s in range(1,num_shifts-2):
-            if d == 0:
-                if (e,d-1,0) in lastweek_assignments:
-                    model.AddBoolOr([work[e,d+1,0].Not(),work[e,d,s].Not()])
-                elif (e,d-2,0) in lastweek_assignments:
-                    model.AddBoolOr([work[e,d,0].Not()])
-            else:
-                #model.Add(sum([work[e,d-1,0],work[e,d,s],work[e,d+1,0]])<3)
-                model.AddBoolOr([work[e,d-1,0].Not(),work[e,d+1,0].Not(),work[e,d,s].Not()])
-
-
-# 早班班个数约束。从外部读取
-night=[7,8,9,10]
-M910=[9,10]
-for e in range(num_employees):
-    model.Add(sum(work[e,d,s] for d in range(num_days) for s in M910)<(min_M910+1))
-    # 下面是因为指定VM3个数可能超出限制，为了容错
-    #model.Add(sum(work[e,d,s] for d in range(num_days) for s in M910)>(min_M910-1))
-    model.Add(sum(work[e,d,s] for d in range(num_days) for s in night)>=(min_night-1))
-    model.Add(sum(work[e,d,s] for d in range(num_days) for s in night)<(min_night+1))
-# 班次衔接约束
-# (前一个班次，后一个班次)
-# M9/M10-M1/M2/M3/M4/VM1/VM2/培训
-# M8/VM3-VM1
-penalized_transitions=[
-    (10,1),(10,2),(10,3),(10,4),(10,5),(10,6),(10,12),
-    (9,1),(9,2),(9,3),(9,4),(9,5),(9,6),(9,12),
-    (7,5),
-    (8,5)
-]
-for previous_shift,next_shift in penalized_transitions:
+def condition_1():
+    # 最大连续工作天数不超过7天
     for e in range(num_employees):
+        for i in range(num_days):
+            model.Add(sum(work[e,d,s] for s in range(num_shifts) if s not in [0,num_shifts-2] for d in range(i-6,i+1))<7)
+
+def condition_2():
+    # 晚班个数约束。从外部读取
+    for s, s_num in n_shifts:
+        ns = s.split(",")
+        nights = [int(n) for n in ns]
+        for e in range(num_employees):
+            model.Add(sum(work[e,d,s] for d in range(num_days) for s in nights) < (s_num + 1))
+            # 这个是临时的，因为指定的VM3个数超过平均晚班数
+            if s == "7,8,9,10":
+                model.Add(sum(work[e,d,s] for d in range(num_days) for s in nights) >= (s_num - 1))
+
+def condition_3():
+    # 班次衔接约束
+    # penalized_transitions=[(前一个班次，后一个班次)]
+    for previous_shift,next_shift in penalized_transitions:
+        for e in range(num_employees):
+            for d in range(num_days):
+                transition=[
+                    work[e,d-1,previous_shift].Not(),work[e,d,next_shift].Not()
+                ]
+                model.AddBoolOr(transition)
+
+def condition_4():
+    # 休息天数约束。从外部读取
+    rest_days=num_days-work_days-len(holi_days)
+    for e in range(num_employees):
+        model.Add(sum(work[e,d,0] for d in range(num_days)  if d not in holi_days)==rest_days)
+
+def condition_5():
+    # 法定假日不能全部上班
+    for e in range(num_employees):
+        model.Add(sum(work[e,d,s] for d in holi_days) > 0)
+
+def condition_6():
+    # 每日班次个数要求.从外部读取
+    #dayly_cover_demands=[]
+    # range(1,num_shifts-2)仅为可变班次
+    for s in range(1,num_shifts-2):
         for d in range(num_days):
-            transition=[
-                work[e,d-1,previous_shift].Not(),work[e,d,next_shift].Not()
-            ]
-            model.AddBoolOr(transition)
+            works=[work[e,d,s] for e in range(num_employees)]
+            min_demand=dayly_cover_demands[d][s-1]
+            model.Add(sum(works)==min_demand)
+def condition_7():
+    # 禁止休-班-休模式
+    # 当前因为上周期班表没有设为变量，所以d-1无法用AddBoolOr
+    # 下面这个是变通解决上周最后两天分别是 休，休-班这两种情况
+    for e in range(num_employees):
+        for d in range(num_days-1):
+            for s in range(1,num_shifts-2):
+                if d == 0:
+                    if (e,d-1,0) in lastweek_assignments:
+                        model.AddBoolOr([work[e,d+1,0].Not(),work[e,d,s].Not()])
+                    elif (e,d-2,0) in lastweek_assignments:
+                        model.AddBoolOr([work[e,d,0].Not()])
+                else:
+                    #model.Add(sum([work[e,d-1,0],work[e,d,s],work[e,d+1,0]])<3)
+                    model.AddBoolOr([work[e,d-1,0].Not(),work[e,d+1,0].Not(),work[e,d,s].Not()])
 
 
-# 休息天数约束。从外部读取
-rest_days=num_days-work_days-len(holi_days)
-for e in range(num_employees):
-    model.Add(sum(work[e,d,0] for d in range(num_days)  if d not in holi_days)==rest_days)
+condition_1()  # 最大连续工作天数不超过7天
 
-# 每日班次个数要求.从外部读取
-#dayly_cover_demands=[]
-# range(1,num_shifts-2)仅为可变班次
-for s in range(1,num_shifts-2):
-    for d in range(num_days):
-        works=[work[e,d,s] for e in range(num_employees)]
-        min_demand=dayly_cover_demands[d][s-1]
-        model.Add(sum(works)>=min_demand)
+condition_2()  # 晚班个数约束
+
+condition_3()  # 班次衔接约束
+
+condition_4()  # 休息天数约束
+
+#condition_5()  # 法定假日不能全部上班
+
+condition_6()  # 每日班次个数要求
+
+condition_7()  # 禁止休-班-休模式
+
+
+
+
+
+
+
+
 print("\nstart solver")
 # 规划目标
 model.Maximize(
