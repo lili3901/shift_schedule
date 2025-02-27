@@ -1,4 +1,4 @@
-# windows10 python3.12 ortools9.10 不能运行，原因未知。
+# windows10 python3.12 ortools9.10 不能运行，原因未知。.
 from ortools.sat.python import cp_model
 from openpyxl import load_workbook,Workbook
 from openpyxl.styles import Font, PatternFill, Alignment,Border,Side
